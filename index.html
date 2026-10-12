@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Sauce Boyz AR Quest</title>
+    <!-- Motor 3D y Realidad Aumentada -->
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.7/aframe/build/aframe-ar.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@700;900&display=swap');
+        
+        body { margin: 0; overflow: hidden; font-family: 'Montserrat', sans-serif; }
+        
+        /* Tema Sauce Boyz 2: Morados, Magentas y Cyan */
+        :root {
+            --magenta: #FF00FF;
+            --morado: #8A2BE2;
+            --cyan: #00FFFF;
+            --oscuro: rgba(15, 10, 25, 0.85);
+        }
+
+        #panel-ui {
+            position: fixed; top: 15px; left: 15px; right: 15px;
+            z-index: 10; display: flex; justify-content: space-between;
+            background: var(--oscuro); color: white;
+            padding: 15px; border-radius: 12px;
+            border: 2px solid var(--magenta);
+            box-shadow: 0 0 10px var(--magenta);
+            text-transform: uppercase;
+        }
+
+        .stat { display: flex; flex-direction: column; align-items: center; }
+        .stat span { font-size: 22px; font-weight: 900; color: var(--cyan); text-shadow: 0 0 5px var(--cyan); }
+        .stat-label { font-size: 10px; color: #CCC; letter-spacing: 1px; }
+
+        /* Pantallas de superposición (Victoria, Derrota, Cambio de Nivel) */
+        #pantalla-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 0, 20, 0.95);
+            z-index: 20; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; color: white;
+            text-align: center;
+        }
+
+        h1 { font-size: 40px; text-transform: uppercase; margin-bottom: 10px; text-shadow: 0 0 15px var(--magenta); color: var(--magenta); }
+        p { font-size: 18px; color: #DDD; max-width: 80%; }
+        
+        button {
+            margin-top: 30px; padding: 15px 40px; font-size: 18px;
+            font-weight: 900; font-family: 'Montserrat', sans-serif;
+            background: linear-gradient(45deg, var(--morado), var(--magenta));
+            color: white; border: none; border-radius: 30px; cursor: pointer;
+            box-shadow: 0 0 15px var(--magenta); text-transform: uppercase;
+            transition: transform 0.2s;
+        }
+        button:active { transform: scale(0.95); }
+
+        #high-score-display {
+            position: absolute; bottom: 20px; font-size: 14px; color: var(--cyan);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- INTERFAZ DE USUARIO -->
+    <div id="panel-ui">
+        <div class="stat"><div class="stat-label">NIVEL</div><span id="ui-nivel">1</span></div>
+        <div class="stat"><div class="stat-label">PUNTOS</div><span id="ui-puntos">0</span></div>
+        <div class="stat"><div class="stat-label">META</div><span id="ui-meta">50</span></div>
+        <div class="stat"><div class="stat-label">TIEMPO</div><span id="ui-tiempo" style="color: var(--magenta);">60</span></div>
+    </div>
+
+    <!-- PANTALLA DE ESTADOS (Inicio, Victoria, Derrota) -->
+    <div id="pantalla-overlay">
+        <h1 id="mensaje-titulo">SAUCE BOYZ AR</h1>
+        <p id="mensaje-texto">Recolecta las monedas de neón y esquiva los virus morados. Completa los 3 niveles.</p>
+        <button id="btn-accion">INICIAR JUEGO</button>
+        <div id="high-score-display">Récord Actual: <span id="record-num">0</span></div>
+    </div>
+
+    <!-- ESCENA DE REALIDAD AUMENTADA -->
+    <a-scene embedded vr-mode-ui="enabled: false" arjs="sourceType: webcam; debugUIEnabled: false;" renderer="logarithmicDepthBuffer: true;">
+        
+        <a-marker preset="hiro" id="marcador">
+            
+            <!-- ROBOT 3D (Estilo Sauce Boyz: Colores Neón) -->
+            <!-- Nota: Si deseas usar un modelo descargado, reemplaza este <a-entity id="robot"> por:
+                 <a-gltf-model src="ruta-de-tu-modelo.glb" scale="0.5 0.5 0.5"></a-gltf-model> -->
+            <a-entity id="robot" position="0 0 0" animation="property: position; to: 0 0.1 0; dir: alternate; loop: true; dur: 1000">
+                <!-- Cabeza -->
+                <a-box position="0 0.8 0" width="0.5" height="0.4" depth="0.4" color="#FF00FF"></a-box>
+                <!-- Ojos Cyan -->
+                <a-sphere position="-0.12 0.85 0.21" radius="0.06" color="#00FFFF" material="emissive: #00FFFF; emissiveIntensity: 0.5"></a-sphere>
+                <a-sphere position="0.12 0.85 0.21" radius="0.06" color="#00FFFF" material="emissive: #00FFFF; emissiveIntensity: 0.5"></a-sphere>
+                <!-- Cuerpo Morado Oscuro -->
+                <a-box position="0 0.35 0" width="0.7" height="0.5" depth="0.4" color="#8A2BE2"></a-box>
+                <!-- Logo central -->
+                <a-cylinder position="0 0.35 0.21" radius="0.15" height="0.02" color="#00FFFF" rotation="90 0 0"></a-cylinder>
+            </a-entity>
+
+            <!-- Contenedor donde aparecerán las monedas y enemigos aleatoriamente -->
+            <a-entity id="contenedor-items"></a-entity>
+
+        </a-marker>
+
+        <!-- CÁMARA CON CURSOR -->
+        <a-entity camera>
+            <a-cursor raycaster="objects: .interactable" fuse="false" color="#00FFFF" animation__click="property: scale; startEvents: click; easing: easeInCubic; dur: 150; from: 0.1 0.1 0.1; to: 1 1 1"></a-cursor>
+        </a-entity>
+    </a-scene>
+
+    <!-- LÓGICA DEL JUEGO (JavaScript) -->
+    <script>
+        // Variables del juego
+        let puntos = 0;
+        let nivel = 1;
+        let tiempo = 60;
+        let meta = 50;
+        let partidaActiva = false;
+        let temporizador;
+        
+        // Configuración de niveles
+        const configNiveles = {
+            1: { tiempo: 60, meta: 50, monedas: 5, enemigos: 1 },
+            2: { tiempo: 45, meta: 100, monedas: 6, enemigos: 3 },
+            3: { tiempo: 30, meta: 150, monedas: 7, enemigos: 5 }
+        };
+
+        // UI Elementos
+        const uiPuntos = document.getElementById("ui-puntos");
+        const uiTiempo = document.getElementById("ui-tiempo");
+        const uiNivel = document.getElementById("ui-nivel");
+        const uiMeta = document.getElementById("ui-meta");
+        const overlay = document.getElementById("pantalla-overlay");
+        const titulo = document.getElementById("mensaje-titulo");
+        const texto = document.getElementById("mensaje-texto");
+        const btnAccion = document.getElementById("btn-accion");
+        const recordDisplay = document.getElementById("record-num");
+        const contenedorItems = document.getElementById("contenedor-items");
+
+        // GUARDAR RÉCORD EN EL NAVEGADOR
+        let record = localStorage.getItem("sauceBoyzRecord") || 0;
+        recordDisplay.innerText = record;
+
+        // SINTETIZADOR DE SONIDOS (Web Audio API)
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+
+        function reproducirSonido(tipo) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            if (tipo === 'moneda') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1500, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+            } else if (tipo === 'enemigo') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.3);
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+            }
+        }
+
+        // GENERADOR DE OBJETOS ALEATORIOS
+        function generarItems(cantidadMonedas, cantidadEnemigos) {
+            contenedorItems.innerHTML = ""; // Limpiar anteriores
+
+            // Función interna para crear entidades
+            const crearEntidad = (tipo) => {
+                const el = document.createElement("a-entity");
+                // Posición aleatoria X y Z (alrededor del robot)
+                const posX = (Math.random() - 0.5) * 4;
+                const posZ = (Math.random() - 0.5) * 4;
+                const posY = 0.5 + Math.random() * 0.5; // Altura aleatoria
+                
+                el.setAttribute("position", `${posX} ${posY} ${posZ}`);
+                el.classList.add("interactable");
+
+                if (tipo === 'moneda') {
+                    // Moneda: Cilindro Cyan con animación
+                    el.setAttribute("geometry", "primitive: cylinder; radius: 0.2; height: 0.05");
+                    el.setAttribute("material", "color: #00FFFF; emissive: #00FFFF; emissiveIntensity: 0.4");
+                    el.setAttribute("animation", "property: rotation; to: 90 360 0; loop: true; dur: 2000");
+                    el.setAttribute("rotation", "90 0 0");
+                    
+                    el.addEventListener("click", () => {
+                        if (!partidaActiva) return;
+                        reproducirSonido('moneda');
+                        puntos += 10;
+                        uiPuntos.innerText = puntos;
+                        el.parentNode.removeChild(el); // Desaparece al tocarla
+                        verificarProgreso();
+                    });
+                } else {
+                    // Enemigo: Cubo Rojo/Magenta oscuro giratorio
+                    el.setAttribute("geometry", "primitive: box; width: 0.3; height: 0.3; depth: 0.3");
+                    el.setAttribute("material", "color: #FF0055");
+                    el.setAttribute("animation", "property: rotation; to: 360 360 360; loop: true; dur: 1500");
+                    
+                    el.addEventListener("click", () => {
+                        if (!partidaActiva) return;
+                        reproducirSonido('enemigo');
+                        puntos -= 10; // Resta puntos
+                        uiPuntos.innerText = puntos;
+                        el.parentNode.removeChild(el);
+                    });
+                }
+                contenedorItems.appendChild(el);
+            };
+
+            for(let i=0; i<cantidadMonedas; i++) crearEntidad('moneda');
+            for(let i=0; i<cantidadEnemigos; i++) crearEntidad('enemigo');
+        }
+
+        // CONTROL DEL JUEGO
+        function iniciarNivel() {
+            partidaActiva = true;
+            overlay.style.display = "none";
+            
+            let conf = configNiveles[nivel];
+            tiempo = conf.tiempo;
+            meta = conf.meta;
+            
+            uiNivel.innerText = nivel;
+            uiTiempo.innerText = tiempo;
+            uiMeta.innerText = meta;
+            uiPuntos.innerText = puntos;
+
+            generarItems(conf.monedas, conf.enemigos);
+
+            // Temporizador
+            clearInterval(temporizador);
+            temporizador = setInterval(() => {
+                if (!partidaActiva) return;
+                tiempo--;
+                uiTiempo.innerText = tiempo;
+                
+                // Regenerar items cada 5 segundos para que no se acaben
+                if (tiempo % 5 === 0) generarItems(conf.monedas, conf.enemigos);
+
+                if (tiempo <= 0) finDelJuego();
+            }, 1000);
+        }
+
+        function verificarProgreso() {
+            if (puntos >= meta) {
+                partidaActiva = false;
+                clearInterval(temporizador);
+                
+                if (nivel < 3) {
+                    nivel++;
+                    titulo.innerText = "¡NIVEL COMPLETADO!";
+                    titulo.style.color = "var(--cyan)";
+                    texto.innerText = "Prepárate para el siguiente nivel. Más rápido, más enemigos.";
+                    btnAccion.innerText = `INICIAR NIVEL ${nivel}`;
+                    overlay.style.display = "flex";
+                } else {
+                    // Ganó todo el juego
+                    titulo.innerText = "¡VICTORIA SUPREMA!";
+                    titulo.style.color = "var(--cyan)";
+                    texto.innerText = `¡Eres un verdadero Sauce Boy! Terminaste con ${puntos} puntos.`;
+                    btnAccion.innerText = "JUGAR DE NUEVO";
+                    guardarRecord();
+                    nivel = 1;
+                    puntos = 0;
+                    overlay.style.display = "flex";
+                }
+            }
+        }
+
+        function finDelJuego() {
+            partidaActiva = false;
+            clearInterval(temporizador);
+            titulo.innerText = "¡TIEMPO AGOTADO!";
+            titulo.style.color = "red";
+            texto.innerText = `Lograste ${puntos} puntos. Necesitabas ${meta} para avanzar.`;
+            btnAccion.innerText = "REINTENTAR";
+            guardarRecord();
+            nivel = 1;
+            puntos = 0;
+            overlay.style.display = "flex";
+        }
+
+        function guardarRecord() {
+            if (puntos > record) {
+                record = puntos;
+                localStorage.setItem("sauceBoyzRecord", record);
+                recordDisplay.innerText = record;
+            }
+        }
+
+        // Botón principal de la interfaz
+        btnAccion.addEventListener("click", iniciarNivel);
+
+    </script>
+</body>
+</html>
